@@ -1,0 +1,27 @@
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
