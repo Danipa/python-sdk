@@ -43,9 +43,9 @@ dev = [
 [project.urls]
 Homepage = "https://docs.danipa.com"
 Documentation = "https://docs.danipa.com/sdks/python"
-Source = "https://github.com/paboagye/danipa-digital-platform/tree/main/sdks/python"
-Changelog = "https://github.com/paboagye/danipa-digital-platform/blob/main/sdks/python/CHANGELOG.md"
-Issues = "https://github.com/paboagye/danipa-digital-platform/issues"
+Source = "https://github.com/Danipa/python-sdk"
+Changelog = "https://github.com/Danipa/python-sdk/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Danipa/python-sdk/issues"
 
 [tool.hatch.version]
 path = "src/danipa/_version.py"
