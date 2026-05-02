@@ -6,19 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0rc0] — 2026-05-02 — TestPyPI dry run
+
+First release-candidate build. Verifies the publish pipeline end-to-end before tagging the production `0.1.0`.
+
 ### Added
 
-- **Stage 1 scaffolding** — `pyproject.toml` (hatchling, Python 3.10+, httpx + Pydantic v2), package skeleton, `_version.py` pinned at 0.1.0, conftest loader for the cross-SDK HMAC fixture, README + CHANGELOG.
+- `Danipa` client with builder-style `Danipa(api_key, *, base_url=None, timeout=30.0, max_retries=3, transport=None)`. Context-manager close.
+- Base URL inference from API key prefix: `dk_live_*` → `https://api.danipa.com/ms`; anything else → `https://api.sandbox.danipa.com/ms`. Lenient default matches Node.
+- 5 resource facades — `collections`, `disbursements`, `wallets`, `payment_links`, `invoices`. Method surface matches the Node SDK 1:1.
+- `_HttpClient` over `httpx.Client`: bearer auth, `X-Idempotency-Key` on POST when supplied, retry on 5xx + transport errors with `200 ms × 2^(attempt - 1)` backoff capped at 2 s + 0–50 ms jitter; 4xx never retries.
+- Pydantic v2 DTOs (`Money`, `Payer`, `Recipient`, plus per-resource models) — snake_case Python attrs ↔ camelCase JSON wire via `to_camel` alias generator.
+- Exception hierarchy: `DanipaError` base, `DanipaApiError(status, code, message, correlation_id, raw)`, `DanipaNetworkError(message, cause)`. Two classes only, matching Node.
+- `verify_webhook(payload, signature, timestamp, secret) -> bool` — agrees bit-for-bit with Node + Java + PHP on every vector in `sdks/fixtures/webhook-hmac.json`. 300 s replay window, `hmac.compare_digest` constant-time check.
+- 34 pytest tests, 98 % coverage, `mypy --strict` and `ruff` clean.
+- Tag-driven release pipeline: subtree-split push to `Danipa/python-sdk` (public mirror), then PyPI / TestPyPI publish via OIDC Trusted Publishing.
 
-### Pending (Stages 2–6)
-
-- `Danipa` client + builder, base-URL inference from `dk_live_*` / `dk_test_*` prefix
-- `_HttpClient` with bearer auth, idempotency-key forwarding, 200 ms × 2^n retry on 5xx (cap 2 s, +0–50 ms jitter)
-- 5 resource facades (`collections`, `disbursements`, `wallets`, `payment_links`, `invoices`)
-- Pydantic v2 DTOs with snake_case ↔ camelCase mapping
-- `DanipaError`, `DanipaApiError`, `DanipaNetworkError`
-- `verify_webhook(...)` agreeing bit-for-bit with Node + Java on `sdks/fixtures/webhook-hmac.json`
-- ≥ 80 % coverage gate, `mypy --strict` and `ruff` clean
-- Tag-driven publish to PyPI via Trusted Publishing (OIDC)
-
-[Unreleased]: https://github.com/paboagye/danipa-digital-platform/compare/sdk-python-v0.1.0...HEAD
+[Unreleased]: https://github.com/Danipa/python-sdk/compare/v0.1.0rc0...HEAD
+[0.1.0rc0]: https://github.com/Danipa/python-sdk/releases/tag/v0.1.0rc0
