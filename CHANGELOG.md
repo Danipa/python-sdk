@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.1.0rc0] — 2026-05-02 — TestPyPI dry run
+## [0.1.0] — 2026-05-02 — first PyPI release
 
-First release-candidate build. Verifies the publish pipeline end-to-end before tagging the production `0.1.0`.
+First public release of the Danipa Python SDK. Surface matches the Node + Java SDKs 1:1.
 
 ### Added
 
@@ -22,5 +22,10 @@ First release-candidate build. Verifies the publish pipeline end-to-end before t
 - 34 pytest tests, 98 % coverage, `mypy --strict` and `ruff` clean.
 - Tag-driven release pipeline: subtree-split push to `Danipa/python-sdk` (public mirror), then PyPI / TestPyPI publish via OIDC Trusted Publishing.
 
-[Unreleased]: https://github.com/Danipa/python-sdk/compare/v0.1.0rc0...HEAD
+## [0.1.0rc0] — 2026-05-02 — TestPyPI dry run
+
+Release-candidate build. Verified the publish pipeline end-to-end on TestPyPI: tag → subtree-split mirror push to `Danipa/python-sdk@v0.1.0rc0` → OIDC publish → `pip install danipa==0.1.0rc0` round-trip OK.
+
+[Unreleased]: https://github.com/Danipa/python-sdk/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Danipa/python-sdk/releases/tag/v0.1.0
 [0.1.0rc0]: https://github.com/Danipa/python-sdk/releases/tag/v0.1.0rc0
