@@ -20,4 +20,5 @@ _FIXTURE_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "webhook-hmac
 def webhook_hmac_fixture() -> dict[str, Any]:
     """Load the cross-SDK HMAC test vectors. Release-blocker on any drift."""
     with _FIXTURE_PATH.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data: dict[str, Any] = json.load(fh)
+    return data
