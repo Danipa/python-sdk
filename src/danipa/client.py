@@ -1,75 +1,94 @@
-"""``Danipa`` — main entry point.
+"""``Danipa`` and ``AsyncDanipa``: the SDK entry points.
 
-Construct once with your API key and reuse the same instance across requests.
-Every resource shares the underlying HTTP client (auth, retry, timeout).
+Construct once with your API key and reuse the instance; every resource shares
+one HTTP client (auth, retries, timeouts).
 
-Sandbox vs production is inferred from the API key prefix:
-
-* ``dk_test_…`` (or any non-``dk_live_…`` value) → ``https://api.sandbox.danipa.com``
-* ``dk_live_…`` → ``https://api.danipa.com``
-
-Pass an explicit ``base_url`` to override.
+The host is inferred from the key prefix: ``dk_test_…`` → sandbox
+(``https://api.sandbox.danipa.com/ms``), ``dk_live_…`` → production
+(``https://api.danipa.com/ms``, not live yet). Pass ``base_url`` to override.
 
 Example
 -------
 .. code-block:: python
 
     import os
-    from danipa import Danipa, RequestOptions
-    from danipa.models import CreateCollectionRequest, Payer
+    from danipa import Danipa
 
     with Danipa(api_key=os.environ["DANIPA_API_KEY"]) as danipa:
-        collection = danipa.collections.create(
-            CreateCollectionRequest(
-                amount="125.00",
-                currency="GHS",
-                payer=Payer(phone="+233244112233", name="Ama K."),
-            ),
-            options=RequestOptions(idempotency_key="order-1234"),
-        )
+        merchant = danipa.merchants.me()
+        print(merchant.business_name, merchant.billing_currency)
 """
 
 from __future__ import annotations
 
 import httpx
 
-from danipa.http import _HttpClient
+from danipa.http import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_TIMEOUT,
+    TimeoutTypes,
+    _AsyncHttp,
+    _SyncHttp,
+)
 from danipa.resources import (
-    CollectionsResource,
-    DisbursementsResource,
+    AsyncInvoicesResource,
+    AsyncMerchantsResource,
+    AsyncPaymentLinksResource,
     InvoicesResource,
+    MerchantsResource,
     PaymentLinksResource,
-    WalletsResource,
 )
 
 
 class Danipa:
-    """The Danipa SDK entry point. Holds one shared HTTP client."""
+    """Blocking client.
+
+    Parameters
+    ----------
+    api_key:
+        A ``dk_test_…`` or ``dk_live_…`` key, sent as ``X-API-Key``.
+    base_url:
+        Override the host inferred from the key prefix.
+    timeout:
+        Seconds, or an :class:`httpx.Timeout`. Default 30 s.
+    max_retries:
+        Number of RETRIES after the first attempt (0 disables). Default 2.
+    http_client:
+        Bring your own :class:`httpx.Client` (proxies, mTLS, event hooks). The SDK
+        does not close a client it did not create. Any ``Authorization`` header or
+        ``auth`` on it is ignored.
+    transport:
+        An :class:`httpx.BaseTransport` for the client the SDK creates (tests).
+    """
 
     def __init__(
         self,
         api_key: str,
         *,
         base_url: str | None = None,
-        timeout: float = 30.0,
-        max_retries: int = 3,
+        timeout: TimeoutTypes = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        http_client: httpx.Client | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        self._http = _HttpClient(
+        self._http = _SyncHttp(
             api_key,
             base_url=base_url,
             timeout=timeout,
             max_retries=max_retries,
+            http_client=http_client,
             transport=transport,
         )
-        self.collections = CollectionsResource(self._http)
-        self.disbursements = DisbursementsResource(self._http)
-        self.wallets = WalletsResource(self._http)
+        self.merchants = MerchantsResource(self._http)
         self.payment_links = PaymentLinksResource(self._http)
         self.invoices = InvoicesResource(self._http)
 
+    @property
+    def base_url(self) -> str:
+        return self._http.base_url
+
     def close(self) -> None:
-        """Close the underlying HTTP client. Safe to call more than once."""
+        """Close the HTTP client if the SDK created it. Safe to call more than once."""
         self._http.close()
 
     def __enter__(self) -> Danipa:
@@ -77,3 +96,47 @@ class Danipa:
 
     def __exit__(self, *_exc: object) -> None:
         self.close()
+
+
+class AsyncDanipa:
+    """``asyncio`` client over :class:`httpx.AsyncClient`.
+
+    Same parameters, request building and retry policy as :class:`Danipa`;
+    ``http_client`` takes an :class:`httpx.AsyncClient`.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str | None = None,
+        timeout: TimeoutTypes = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        http_client: httpx.AsyncClient | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._http = _AsyncHttp(
+            api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            http_client=http_client,
+            transport=transport,
+        )
+        self.merchants = AsyncMerchantsResource(self._http)
+        self.payment_links = AsyncPaymentLinksResource(self._http)
+        self.invoices = AsyncInvoicesResource(self._http)
+
+    @property
+    def base_url(self) -> str:
+        return self._http.base_url
+
+    async def aclose(self) -> None:
+        """Close the HTTP client if the SDK created it."""
+        await self._http.aclose()
+
+    async def __aenter__(self) -> AsyncDanipa:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.aclose()

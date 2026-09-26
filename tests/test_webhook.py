@@ -1,121 +1,222 @@
-"""Webhook signature verification — cross-SDK fixture parity.
+"""Webhook verification: cross-SDK fixture parity, raw bytes, rotation, construct_event.
 
 Every Danipa SDK (Node, Java, Python, PHP) must produce identical signatures
 for every vector in ``sdks/fixtures/webhook-hmac.json``. Drift here means a
-backend webhook will validate in one SDK but reject in another — treat any
-test failure as a release-blocker.
+webhook validates in one SDK but is rejected in another: a release-blocker.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from danipa import REPLAY_WINDOW_SECONDS, verify_webhook
-from danipa.webhook import compute_signature
+from danipa import (
+    REPLAY_WINDOW_SECONDS,
+    WebhookVerificationError,
+    compute_signature,
+    construct_event,
+    verify_webhook,
+)
+from tests.conftest import FIXTURE_PATH, MONOREPO_FIXTURE_PATH
+
+SECRET = "whsec_fixed_test_secret"
+TS = 1700000000
+BODY = b'{"event":"payment.completed","amount":125.10}'
 
 
 @pytest.fixture
 def fixed_clock() -> Iterator[None]:
-    """Pin time.time() to 1700000000 so fixture timestamps land inside the replay window."""
-    with patch("danipa.webhook.time.time", return_value=1700000000):
+    with patch("danipa.webhook.time.time", return_value=TS):
         yield
 
 
-def test_compute_signature_matches_every_fixture_vector(
+def _headers(body: bytes = BODY, secret: str = SECRET, ts: int = TS) -> dict[str, str]:
+    return {
+        "X-Danipa-Signature": compute_signature(body, secret, ts),
+        "X-Danipa-Timestamp": str(ts),
+        "X-Danipa-Event": "payment.completed",
+        "X-Danipa-Delivery": "dlv_123",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fixture parity
+# ---------------------------------------------------------------------------
+
+
+def test_vendored_fixture_matches_monorepo_source() -> None:
+    if not MONOREPO_FIXTURE_PATH.exists():
+        pytest.skip("not running inside the monorepo (public mirror)")
+    assert FIXTURE_PATH.read_bytes() == MONOREPO_FIXTURE_PATH.read_bytes()
+
+
+def test_compute_signature_matches_every_vector(webhook_hmac_fixture: dict[str, Any]) -> None:
+    for vector in webhook_hmac_fixture["vectors"]:
+        for payload in (vector["payload"], vector["payload"].encode("utf-8")):
+            actual = compute_signature(payload, vector["secret"], vector["timestamp"])
+            assert actual == vector["expectedSignature"], vector["name"]
+
+
+def test_verify_accepts_every_vector_including_empty_payload(
     webhook_hmac_fixture: dict[str, Any],
 ) -> None:
-    """compute_signature must produce the exact bytes recorded in the fixture."""
+    names = []
     for vector in webhook_hmac_fixture["vectors"]:
-        actual = compute_signature(vector["payload"], vector["secret"], vector["timestamp"])
-        assert actual == vector["expectedSignature"], (
-            f"vector {vector['name']!r}: expected {vector['expectedSignature']!r}, got {actual!r}"
-        )
-
-
-def test_verify_accepts_every_non_empty_fixture_vector(
-    webhook_hmac_fixture: dict[str, Any],
-) -> None:
-    """verify() must accept the recorded signature for every non-empty vector inside the replay window.
-
-    The ``empty-payload`` vector exists for ``compute_signature`` parity only;
-    ``verify()`` rejects empty payloads as a safety check (matches Node + Java).
-    Each vector pins its own timestamp; ``time.time()`` is patched per-vector so the
-    replay-window check passes regardless of when the test runs.
-    """
-    for vector in webhook_hmac_fixture["vectors"]:
-        if vector["payload"] == "":
-            continue
         with patch("danipa.webhook.time.time", return_value=vector["timestamp"]):
-            assert verify_webhook(
-                vector["payload"],
-                vector["expectedSignature"],
-                str(vector["timestamp"]),
-                vector["secret"],
-            ), f"vector {vector['name']!r} failed to verify"
+            for payload in (vector["payload"], vector["payload"].encode("utf-8")):
+                assert verify_webhook(
+                    payload,
+                    vector["expectedSignature"],
+                    str(vector["timestamp"]),
+                    vector["secret"],
+                ), vector["name"]
+        names.append(vector["name"])
+    assert "empty-payload" in names
 
 
-def test_verify_rejects_tampered_signature(fixed_clock: None) -> None:
-    payload = '{"test":true}'
-    secret = "whsec_fixed_test_secret"
-    ts = 1700000000
-    bad = "sha256=" + "0" * 64
-    assert verify_webhook(payload, bad, str(ts), secret) is False
+# ---------------------------------------------------------------------------
+# verify()
+# ---------------------------------------------------------------------------
 
 
-def test_verify_rejects_tampered_payload(fixed_clock: None) -> None:
-    secret = "whsec_fixed_test_secret"
-    ts = 1700000000
-    sig = compute_signature('{"test":true}', secret, ts)
-    assert verify_webhook('{"test":false}', sig, str(ts), secret) is False
+def test_bytes_are_signed_raw_not_re_encoded(fixed_clock: None) -> None:
+    raw = "{\"x\":\"€\"}".encode()
+    sig = compute_signature(raw, SECRET, TS)
+    assert verify_webhook(raw, sig, str(TS), SECRET)
+    assert verify_webhook(bytearray(raw), sig, str(TS), SECRET)
+    assert verify_webhook(memoryview(raw), sig, str(TS), SECRET)
+    assert verify_webhook(raw.decode("utf-8"), sig, str(TS), SECRET)
 
 
-def test_verify_rejects_expired_timestamp() -> None:
-    payload = '{"test":true}'
-    secret = "whsec_fixed_test_secret"
-    ts = 1700000000
-    sig = compute_signature(payload, secret, ts)
-    # 'now' is ts + replay_window + 1 → outside the window
-    with patch("danipa.webhook.time.time", return_value=ts + REPLAY_WINDOW_SECONDS + 1):
-        assert verify_webhook(payload, sig, str(ts), secret) is False
+def test_rejects_tampered_signature_and_payload(fixed_clock: None) -> None:
+    sig = compute_signature(BODY, SECRET, TS)
+    assert verify_webhook(BODY, "sha256=" + "0" * 64, str(TS), SECRET) is False
+    assert verify_webhook(BODY + b" ", sig, str(TS), SECRET) is False
 
 
-def test_verify_rejects_future_timestamp_outside_window() -> None:
-    payload = '{"test":true}'
-    secret = "whsec_fixed_test_secret"
-    ts = 1700000000
-    sig = compute_signature(payload, secret, ts)
-    with patch("danipa.webhook.time.time", return_value=ts - REPLAY_WINDOW_SECONDS - 1):
-        assert verify_webhook(payload, sig, str(ts), secret) is False
+def test_default_tolerance_is_300s() -> None:
+    sig = compute_signature(BODY, SECRET, TS)
+    with patch("danipa.webhook.time.time", return_value=TS + REPLAY_WINDOW_SECONDS):
+        assert verify_webhook(BODY, sig, str(TS), SECRET) is True
+    with patch("danipa.webhook.time.time", return_value=TS + REPLAY_WINDOW_SECONDS + 1):
+        assert verify_webhook(BODY, sig, str(TS), SECRET) is False
+    with patch("danipa.webhook.time.time", return_value=TS - REPLAY_WINDOW_SECONDS - 1):
+        assert verify_webhook(BODY, sig, str(TS), SECRET) is False
+
+
+def test_tolerance_is_configurable() -> None:
+    sig = compute_signature(BODY, SECRET, TS)
+    with patch("danipa.webhook.time.time", return_value=TS + 600):
+        assert verify_webhook(BODY, sig, str(TS), SECRET) is False
+        assert verify_webhook(BODY, sig, str(TS), SECRET, tolerance=900) is True
+    with patch("danipa.webhook.time.time", return_value=TS + 31):
+        assert verify_webhook(BODY, sig, str(TS), SECRET, tolerance=30) is False
+
+
+def test_secret_rotation_accepts_any_listed_secret(fixed_clock: None) -> None:
+    sig_new = compute_signature(BODY, "whsec_new", TS)
+    sig_old = compute_signature(BODY, "whsec_old", TS)
+    secrets = ["whsec_new", "whsec_old"]
+    assert verify_webhook(BODY, sig_new, str(TS), secrets)
+    assert verify_webhook(BODY, sig_old, str(TS), secrets)
+    assert verify_webhook(BODY, sig_old, str(TS), ("whsec_new",)) is False
 
 
 @pytest.mark.parametrize(
-    ("payload", "signature", "timestamp", "secret"),
+    ("signature", "timestamp", "secret"),
     [
-        ("", "sha256=abc", "1700000000", "whsec_x"),
-        ('{"x":1}', "", "1700000000", "whsec_x"),
-        ('{"x":1}', "sha256=abc", "", "whsec_x"),
-        ('{"x":1}', "sha256=abc", "1700000000", ""),
+        ("", str(TS), SECRET),
+        ("sha256=abc", "", SECRET),
+        ("sha256=abc", str(TS), ""),
+        ("sha256=abc", str(TS), []),
+        ("sha256=abc", str(TS), ["", ""]),
+        ("sha256=abc", "not-a-number", SECRET),
     ],
-    ids=["empty-payload", "empty-signature", "empty-timestamp", "empty-secret"],
+    ids=["no-signature", "no-timestamp", "empty-secret", "no-secrets", "blank-secrets", "bad-ts"],
 )
-def test_verify_rejects_empty_inputs(
-    payload: str, signature: str, timestamp: str, secret: str
+def test_rejects_missing_inputs(
+    fixed_clock: None, signature: str, timestamp: str, secret: str | list[str]
 ) -> None:
-    assert verify_webhook(payload, signature, timestamp, secret) is False
+    assert verify_webhook(BODY, signature, timestamp, secret) is False
 
 
-def test_verify_rejects_non_numeric_timestamp(fixed_clock: None) -> None:
-    payload = '{"test":true}'
-    secret = "whsec_fixed_test_secret"
-    sig = compute_signature(payload, secret, 1700000000)
-    assert verify_webhook(payload, sig, "not-a-number", secret) is False
+# ---------------------------------------------------------------------------
+# construct_event()
+# ---------------------------------------------------------------------------
 
 
-def test_compute_signature_format() -> None:
-    sig = compute_signature("{}", "whsec_x", 1700000000)
+def test_construct_event_returns_typed_event(fixed_clock: None) -> None:
+    event = construct_event(BODY, _headers(), SECRET)
+    assert event.type == "payment.completed"
+    assert event.delivery_id == "dlv_123"
+    assert event.timestamp == TS
+    assert event.raw == BODY
+    assert event.data == {"event": "payment.completed", "amount": Decimal("125.10")}
+    assert str(event.data["amount"]) == "125.10"
+
+
+def test_construct_event_headers_are_case_insensitive(fixed_clock: None) -> None:
+    headers = {k.lower(): v for k, v in _headers().items()}
+    event = construct_event(BODY.decode("utf-8"), headers, [SECRET])
+    assert event.delivery_id == "dlv_123"
+
+
+def test_construct_event_with_rotated_secrets(fixed_clock: None) -> None:
+    event = construct_event(BODY, _headers(secret="whsec_old"), ["whsec_new", "whsec_old"])
+    assert event.type == "payment.completed"
+
+
+def test_construct_event_empty_body_has_no_data(fixed_clock: None) -> None:
+    event = construct_event(b"", _headers(body=b""), SECRET)
+    assert event.data is None
+    assert event.raw == b""
+
+
+def test_construct_event_optional_headers_absent(fixed_clock: None) -> None:
+    headers = _headers()
+    del headers["X-Danipa-Event"]
+    del headers["X-Danipa-Delivery"]
+    event = construct_event(BODY, headers, SECRET)
+    assert event.type is None
+    assert event.delivery_id is None
+
+
+@pytest.mark.parametrize("missing", ["X-Danipa-Signature", "X-Danipa-Timestamp"])
+def test_construct_event_requires_signing_headers(fixed_clock: None, missing: str) -> None:
+    headers = _headers()
+    del headers[missing]
+    with pytest.raises(WebhookVerificationError, match="missing"):
+        construct_event(BODY, headers, SECRET)
+
+
+def test_construct_event_rejects_bad_signature(fixed_clock: None) -> None:
+    with pytest.raises(WebhookVerificationError, match="verification failed"):
+        construct_event(BODY, _headers(secret="whsec_other"), SECRET)
+
+
+def test_construct_event_rejects_stale_timestamp() -> None:
+    with (
+        patch("danipa.webhook.time.time", return_value=TS + 301),
+        pytest.raises(WebhookVerificationError),
+    ):
+        construct_event(BODY, _headers(), SECRET)
+    with patch("danipa.webhook.time.time", return_value=TS + 301):
+        assert construct_event(BODY, _headers(), SECRET, tolerance=400).timestamp == TS
+
+
+@pytest.mark.parametrize("body", [b"{not json", b"\xff\xfe"])
+def test_construct_event_rejects_signed_non_json(fixed_clock: None, body: bytes) -> None:
+    with pytest.raises(WebhookVerificationError, match="not valid JSON"):
+        construct_event(body, _headers(body=body), SECRET)
+
+
+def test_signature_format() -> None:
+    sig = compute_signature("{}", "whsec_x", TS)
     assert sig.startswith("sha256=")
-    assert len(sig) == len("sha256=") + 64  # SHA-256 = 32 bytes = 64 hex chars
+    assert len(sig) == len("sha256=") + 64
+    assert json.loads("{}") == {}

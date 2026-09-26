@@ -1,17 +1,16 @@
-"""Resource facades exposed by :class:`danipa.Danipa`."""
+"""Resource facades exposed by :class:`danipa.Danipa` and :class:`danipa.AsyncDanipa`."""
 
 from __future__ import annotations
 
-from danipa.resources.collections import CollectionsResource
-from danipa.resources.disbursements import DisbursementsResource
-from danipa.resources.invoices import InvoicesResource
-from danipa.resources.payment_links import PaymentLinksResource
-from danipa.resources.wallets import WalletsResource
+from danipa.resources.invoices import AsyncInvoicesResource, InvoicesResource
+from danipa.resources.merchants import AsyncMerchantsResource, MerchantsResource
+from danipa.resources.payment_links import AsyncPaymentLinksResource, PaymentLinksResource
 
 __all__ = [
-    "CollectionsResource",
-    "DisbursementsResource",
+    "AsyncInvoicesResource",
+    "AsyncMerchantsResource",
+    "AsyncPaymentLinksResource",
     "InvoicesResource",
+    "MerchantsResource",
     "PaymentLinksResource",
-    "WalletsResource",
 ]

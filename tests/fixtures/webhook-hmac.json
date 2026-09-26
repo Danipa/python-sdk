@@ -1,0 +1,40 @@
+{
+  "$comment": "Cross-SDK test vectors for Danipa webhook HMAC-SHA256 signing. Every Danipa SDK (Node, Java, future PHP / Python / Go) MUST produce the exact `expectedSignature` for each `(payload, secret, timestamp)` triple. Drift here means a backend webhook will validate in one SDK but reject in another — treat any test failure as a release-blocker. Algorithm: signedContent = `${timestamp}.${payload}` (UTF-8); signature = `sha256=` + lowercase-hex HMAC-SHA256(secret, signedContent).",
+  "algorithm": "HMAC-SHA256",
+  "signedContentTemplate": "${timestamp}.${payload}",
+  "signaturePrefix": "sha256=",
+  "vectors": [
+    {
+      "name": "default-test-vector",
+      "description": "The original Node-SDK fixture vector. Do not change without coordinating across all SDKs.",
+      "payload": "{\"test\":true}",
+      "secret": "whsec_fixed_test_secret",
+      "timestamp": 1700000000,
+      "expectedSignature": "sha256=fa1ac332722a04bacd306e53df8eba930d488fbb821ef6ca0cc00041ab5bc140"
+    },
+    {
+      "name": "realistic-payment-event",
+      "description": "Representative real-world webhook payload — collection completed event.",
+      "payload": "{\"event\":\"payment.completed\",\"id\":\"col_abc123\",\"amount\":\"125.00\",\"currency\":\"GHS\"}",
+      "secret": "whsec_realistic_payment_secret",
+      "timestamp": 1714800000,
+      "expectedSignature": "sha256=d4cd914daa022cc07133b7f961c1ed71f4778b22dd2d8742f6a3ac6bbd989000"
+    },
+    {
+      "name": "empty-payload",
+      "description": "Edge case — empty body. SDK should still compute a deterministic signature.",
+      "payload": "",
+      "secret": "whsec_empty_payload",
+      "timestamp": 1700000000,
+      "expectedSignature": "sha256=5c5c07e321504f13cdb33ebddfce32ddcf14af857ab840674decabac8fe8a5c4"
+    },
+    {
+      "name": "unicode-payload-and-secret",
+      "description": "Validates UTF-8 byte-encoding of both payload and secret. CJK + emoji in payload, multi-byte chars in secret.",
+      "payload": "{\"unicode\":\"€ 中文 emoji 🎉\"}",
+      "secret": "whsec_unicode_secret_πøß",
+      "timestamp": 1700000000,
+      "expectedSignature": "sha256=f1e979af50c4061d327f42bbee1d20db99b305f9ec5930780eafe6cedf6348be"
+    }
+  ]
+}
