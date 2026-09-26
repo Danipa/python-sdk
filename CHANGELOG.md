@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Release pipeline: PyPI / TestPyPI uploads now run from the public `Danipa/python-sdk` mirror (`.github/workflows/publish.yml`), so PyPI's Trusted Publishing names a public, verifiable source. No change to the package itself.
+
 ## [0.1.0] — 2026-05-02 — first PyPI release
 
 First public release of the Danipa Python SDK. Surface matches the Node + Java SDKs 1:1.

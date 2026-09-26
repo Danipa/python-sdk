@@ -1,0 +1,119 @@
+name: Publish danipa (PyPI)
+
+# Tag-driven PyPI / TestPyPI publish for the Danipa Python SDK.
+#
+# IMPORTANT: This file is the SOURCE OF TRUTH for the mirror's publish
+# workflow. It lives at sdks/python/.github/workflows/publish.yml in the
+# monorepo so that `git subtree split --prefix=sdks/python` carries it into
+# every tag tree on Danipa/python-sdk. GitHub Actions resolves tag-fired
+# workflows from the commit being pushed, so the file MUST be in the tag's tree.
+#
+# Why publish from the mirror (same pattern as Danipa/node-sdk): PyPI Trusted
+# Publishing trusts the repository whose workflow uploads. Uploading from the
+# private monorepo made PyPI name a private repo as the verified source, and
+# the registration (owner `paboagye`) broke when the monorepo moved to the
+# Danipa org (#5330). Uploading from this public mirror gives PyPI a public,
+# verifiable source.
+#
+# Source of truth for the SDK CODE: Danipa/danipa-digital-platform → sdks/python/.
+# The monorepo's sdk-python-publish.yml lints, type-checks, tests, builds and
+# then mirrors a tag here; this workflow only rebuilds and uploads.
+#
+# One-time setup, on pypi.org AND test.pypi.org → project `danipa` →
+# Publishing → Trusted publishers:
+#   owner: Danipa   repo: python-sdk   workflow: publish.yml   environment: (none)
+#
+# Tag shape (mirror tags are v<version>, pushed by the monorepo):
+#   v0.1.0       → PyPI       (production)
+#   v0.1.0rc0 / a1 / b2 → TestPyPI (PEP 440 pre-release, dry run)
+#
+# Workflow-injection safety: only the tag ref is used, via env: into a quoted
+# shell variable. No untrusted event input reaches run: blocks.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.meta.outputs.target }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify tag matches package version + decide target
+        id: meta
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(sed -nE 's/^__version__ = "([^"]+)"$/\1/p' src/danipa/_version.py)
+          TAG_VERSION="${REF_NAME#v}"
+          if [ -z "$PKG_VERSION" ] || [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package version (${PKG_VERSION:-unreadable})"
+            exit 1
+          fi
+          if [[ "$PKG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "target=pypi" >> "$GITHUB_OUTPUT"; echo "Target: PyPI (production)"
+          else
+            echo "target=testpypi" >> "$GITHUB_OUTPUT"; echo "Target: TestPyPI (pre-release)"
+          fi
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish-pypi:
+    needs: build
+    if: needs.build.outputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-testpypi:
+    needs: build
+    if: needs.build.outputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          repository-url: https://test.pypi.org/legacy/
