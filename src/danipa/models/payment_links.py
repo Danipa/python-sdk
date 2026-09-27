@@ -1,4 +1,5 @@
-"""Payment link models (fintech ``CreatePaymentLinkRequest`` / ``PaymentLinkResponse``)."""
+"""Payment link models (fintech ``CreatePaymentLinkRequest`` / ``UpdatePaymentLinkRequest`` /
+``PaymentLinkResponse``)."""
 
 from __future__ import annotations
 
@@ -36,6 +37,23 @@ class CreatePaymentLinkRequest(_ApiModel):
     customer_id: str | None = None
 
 
+class UpdatePaymentLinkRequest(_ApiModel):
+    """Body of ``PUT /v1/merchants/me/payment-links/{id}``.
+
+    Every field is optional; send only what changes (``None`` fields are left
+    out of the body). The currency and customer of a link cannot be changed.
+    """
+
+    title: str | None = None
+    description: str | None = None
+    amount: Decimal | None = None
+    is_amount_fixed: bool | None = None
+    min_amount: Decimal | None = None
+    max_amount: Decimal | None = None
+    redirect_url: str | None = None
+    expires_at: datetime | None = None
+
+
 class PaymentLink(_ResponseModel):
     id: str
     customer_id: str | None = None
@@ -58,3 +76,16 @@ class PaymentLink(_ResponseModel):
     merchant_logo_url: str | None = None
     merchant_brand_color: str | None = None
     merchant_storefront_url: str | None = None
+
+
+class DeletePaymentLinkResult(_ResponseModel):
+    """Outcome of ``DELETE /v1/merchants/me/payment-links/{id}``.
+
+    A link with no transactions is deleted (HTTP 204, ``deleted=True``). A link
+    that has transactions is deactivated instead (HTTP 200,
+    ``deleted=False``, ``action="deactivated"``).
+    """
+
+    deleted: bool = False
+    action: str | None = None
+    message: str | None = None

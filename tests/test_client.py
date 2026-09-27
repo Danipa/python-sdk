@@ -81,7 +81,6 @@ def _link_request() -> CreatePaymentLinkRequest:
 def test_infer_base_url_by_prefix() -> None:
     assert infer_base_url("dk_test_abc") == SANDBOX_BASE_URL
     assert infer_base_url("dk_live_abc") == PRODUCTION_BASE_URL
-    assert infer_base_url("something_else") == SANDBOX_BASE_URL
 
 
 @pytest.mark.parametrize(
@@ -648,6 +647,23 @@ def test_merchants_me_parses_merchant_response() -> None:
     assert merchant.response_meta is not None
     assert merchant.response_meta.request_id == "c-me"
     assert merchant.response_meta.idempotency_key is None
+
+
+def test_merchant_parses_canadian_tax_registration_numbers() -> None:
+    body = {**MERCHANT_BODY, "gstHstNumber": "123456789RT0001", "qstNumber": "1234567890TQ0001"}
+    server = FakeServer(json_response(200, body))
+    with _client(server) as danipa:
+        merchant = danipa.merchants.me()
+    assert merchant.gst_hst_number == "123456789RT0001"
+    assert merchant.qst_number == "1234567890TQ0001"
+
+
+def test_merchant_tax_registration_numbers_default_to_none() -> None:
+    server = FakeServer(json_response(200, MERCHANT_BODY))
+    with _client(server) as danipa:
+        merchant = danipa.merchants.me()
+    assert merchant.gst_hst_number is None
+    assert merchant.qst_number is None
 
 
 def test_merchant_ignores_unknown_fields() -> None:

@@ -29,13 +29,14 @@ import time
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from danipa._version import package_version
 from danipa.errors import (
     DanipaApiError,
+    DanipaConfigurationError,
     DanipaConnectionError,
     DanipaNetworkError,
     DanipaTimeoutError,
@@ -46,7 +47,18 @@ from danipa.errors import (
 
 SANDBOX_BASE_URL = "https://api.sandbox.danipa.com/ms"
 PRODUCTION_BASE_URL = "https://api.danipa.com/ms"
-"""Production is not live yet; ``dk_live_`` keys will resolve here once it is."""
+"""Production is not live yet; only a ``dk_live_`` key (or an explicit override) reaches it."""
+
+TEST_KEY_PREFIX = "dk_test_"
+LIVE_KEY_PREFIX = "dk_live_"
+
+Environment = Literal["sandbox", "live"]
+"""An explicit environment: ``"sandbox"`` or ``"live"``."""
+
+ENVIRONMENT_BASE_URLS: dict[str, str] = {
+    "sandbox": SANDBOX_BASE_URL,
+    "live": PRODUCTION_BASE_URL,
+}
 
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_MAX_RETRIES = 2
@@ -63,14 +75,40 @@ TimeoutTypes = float | httpx.Timeout
 
 
 def infer_base_url(api_key: str) -> str:
-    """Infer the host from the key prefix.
+    """Infer the host from the key prefix (the server's own environment marker).
 
-    ``dk_live_*`` resolves to production (not live yet); anything else,
-    including ``dk_test_*``, resolves to sandbox. Pass ``base_url`` to override.
+    ``dk_test_*`` resolves to sandbox and ``dk_live_*`` to production (not live
+    yet). Any other prefix raises :class:`~danipa.DanipaConfigurationError`
+    rather than guessing: sending a key to the wrong environment is never what
+    you want. Pass ``base_url`` or ``environment`` to choose explicitly.
     """
-    if api_key.startswith("dk_live_"):
+    if api_key.startswith(TEST_KEY_PREFIX):
+        return SANDBOX_BASE_URL
+    if api_key.startswith(LIVE_KEY_PREFIX):
         return PRODUCTION_BASE_URL
-    return SANDBOX_BASE_URL
+    raise DanipaConfigurationError(
+        "Danipa SDK: cannot tell the environment from this API key. Danipa keys start "
+        f"with '{TEST_KEY_PREFIX}' (sandbox) or '{LIVE_KEY_PREFIX}' (live). Check the key, "
+        "or pass base_url=... or environment='sandbox'|'live' explicitly."
+    )
+
+
+def resolve_base_url(
+    api_key: str,
+    base_url: str | None = None,
+    environment: str | None = None,
+) -> str:
+    """Pick the host: ``base_url`` wins, then ``environment``, then the key prefix."""
+    if base_url:
+        return base_url.rstrip("/")
+    if environment is not None:
+        try:
+            return ENVIRONMENT_BASE_URLS[environment]
+        except KeyError:
+            raise DanipaConfigurationError(
+                f"Danipa SDK: unknown environment {environment!r}; use 'sandbox' or 'live'"
+            ) from None
+    return infer_base_url(api_key)
 
 
 def user_agent() -> str:
@@ -180,11 +218,12 @@ class _BaseHttp:
         base_url: str | None,
         timeout: TimeoutTypes,
         max_retries: int,
+        environment: str | None = None,
     ) -> None:
         if not api_key:
             raise TypeError("Danipa SDK: api_key is required")
         self._api_key = api_key
-        self._base_url = (base_url or infer_base_url(api_key)).rstrip("/")
+        self._base_url = resolve_base_url(api_key, base_url, environment)
         self._timeout = timeout
         self._max_retries = _validate_max_retries(max_retries)
         self._user_agent = user_agent()
@@ -409,12 +448,19 @@ class _SyncHttp(_BaseHttp):
         api_key: str,
         *,
         base_url: str | None = None,
+        environment: str | None = None,
         timeout: TimeoutTypes = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         http_client: httpx.Client | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        super().__init__(api_key, base_url=base_url, timeout=timeout, max_retries=max_retries)
+        super().__init__(
+            api_key,
+            base_url=base_url,
+            environment=environment,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
         self._owns_client = http_client is None
         self._client = http_client or httpx.Client(timeout=timeout, transport=transport)
 
@@ -450,12 +496,19 @@ class _AsyncHttp(_BaseHttp):
         api_key: str,
         *,
         base_url: str | None = None,
+        environment: str | None = None,
         timeout: TimeoutTypes = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
         http_client: httpx.AsyncClient | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        super().__init__(api_key, base_url=base_url, timeout=timeout, max_retries=max_retries)
+        super().__init__(
+            api_key,
+            base_url=base_url,
+            environment=environment,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
         self._owns_client = http_client is None
         self._client = http_client or httpx.AsyncClient(timeout=timeout, transport=transport)
 

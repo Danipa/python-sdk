@@ -49,3 +49,7 @@ class Merchant(_ResponseModel):
     storefront_template: str | None = None
     checkout_mode: str | None = None
     external_checkout_url: str | None = None
+    gst_hst_number: str | None = None
+    """Canadian GST/HST registration number, if the merchant has one."""
+    qst_number: str | None = None
+    """Québec QST registration number, if the merchant has one."""

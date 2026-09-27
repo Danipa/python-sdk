@@ -15,6 +15,8 @@ Catch :class:`DanipaError` once, then narrow::
     ├── DanipaNetworkError          no response at all (DNS, TLS, reset, timeout)
     │   ├── DanipaConnectionError   could not connect / connection dropped
     │   └── DanipaTimeoutError      the request timed out
+    ├── DanipaConfigurationError    the client cannot be built as configured (e.g. an API
+    │                               key whose prefix names no environment); also a ValueError
     ├── ResponseParseError          a 2xx whose body could not be parsed. The call
     │                               may well have SUCCEEDED; only re-issue it with
     │                               the same ``idempotency_key``
@@ -107,9 +109,10 @@ class AuthenticationError(DanipaApiError):
 class PermissionDeniedError(DanipaApiError):
     """403: the key is valid but may not do this.
 
-    Common codes: ``API_KEY_SCOPE_DENIED`` (the route is not on the API-key
-    surface yet, see #5573), ``AMBIGUOUS_CREDENTIALS``, ``IP_NOT_ALLOWED``,
-    ``REFERER_NOT_ALLOWED``, ``BILLING_SUSPENDED``.
+    Common codes: ``API_KEY_SCOPE_DENIED`` (the key lacks the route's scope, or
+    the route is not on the API-key surface), ``AMBIGUOUS_CREDENTIALS``,
+    ``IP_NOT_ALLOWED``, ``REFERER_NOT_ALLOWED``, ``BILLING_SUSPENDED``,
+    ``STEP_UP_REQUIRED``.
     """
 
 
@@ -131,6 +134,15 @@ class RateLimitError(DanipaApiError):
 
 class ServerError(DanipaApiError):
     """5xx: the server failed. 500 and 501 are not retried automatically."""
+
+
+class DanipaConfigurationError(DanipaError, ValueError):
+    """The client was configured in a way the SDK refuses to guess about.
+
+    Raised at construction, before anything is sent: most often an API key whose
+    prefix is neither ``dk_test_`` nor ``dk_live_`` with no explicit ``base_url``
+    or ``environment``, or an unknown ``environment`` value.
+    """
 
 
 class DanipaNetworkError(DanipaError):

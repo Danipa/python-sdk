@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### 0.3.0 readiness: the full API-key surface (Part of #5573)
+
+The SDK now covers every route an API key can call (the fintech `ApiKeyAuthenticationFilter` route table) and nothing else, and a `dk_test_` key works against sandbox straight after `pip install`. Version stays a dev pre-release; the release PR sets 0.3.0.
+
+#### Added
+
+- `payment_links.list(page=, size=)` → `Page[PaymentLink]`, `payment_links.update(id, UpdatePaymentLinkRequest)` → `PaymentLink`, `payment_links.delete(id)` → `DeletePaymentLinkResult` (`deleted=True` on 204; `deleted=False, action="deactivated"` when the link has payments).
+- `invoices.list(status=, q=, page=, size=)` → `Page[Invoice]`, `invoices.get(id)`, `invoices.send(id)`, `invoices.void(id)` → `Invoice`.
+- `balances.list()` → `list[Balance]` (`GET /v1/merchants/me/wallet/balances`; `Balance`: `id`, `currency`, `available_balance`, `pending_balance`, `status`).
+- `Page[T]` (`content`, `total_elements`, `total_pages`, `number` (zero-based), `size`, `has_next`); parses both the flat Spring `Page` JSON the server writes today and the nested `page` shape.
+- `Merchant.gst_hst_number` and `Merchant.qst_number` (Canadian GST/HST and QST registration numbers, nullable; #5608).
+- `invoices.list(status=)` is validated against the server's `InvoiceStatus` (`DRAFT, SENT, PAID, OVERDUE, VOIDED`, case-insensitive, sent upper-case); anything else raises `ValueError` before sending, since the server answers an unknown value with a 500. Unknown statuses in responses still parse as `InvoiceStatus.UNKNOWN`.
+- `environment="sandbox" | "live"` option on `Danipa` / `AsyncDanipa`.
+- `DanipaConfigurationError` (a `DanipaError` and a `ValueError`).
+- Same methods on `AsyncDanipa`. Ids accept `str` or `uuid.UUID`; a value that is not a UUID raises `ValueError` before sending (the server would otherwise answer a misleading `403 API_KEY_SCOPE_DENIED`). `page` must be >= 0 and `size` 1 to 200, checked client-side the same way.
+- `tests/test_route_contract.py`: the SDK's route set must equal the server's API-key route table (and, in the monorepo, the table parsed from the fintech source), so drift fails CI.
+- `examples/smoke_sandbox.py`: live sandbox walk of every method (not run in CI).
+
+#### Changed
+
+- **Environment from the key prefix is now strict (breaking).** `dk_test_…` → `https://api.sandbox.danipa.com/ms`, `dk_live_…` → `https://api.danipa.com/ms`, as before. A key with any other prefix used to fall back silently to sandbox; it now raises `DanipaConfigurationError` at construction unless you pass `base_url` or `environment`. An explicit `base_url` still always wins (then `environment`, then the prefix).
+- `payment_links.create` and `invoices.create` are now reachable with an API key (`payments:write`); the "403 until #5573" caveat is gone.
+
+#### Removed
+
+- Nothing callable: the SDK already had no method on a non-key route. The lenient "anything else → sandbox" host fallback is removed (see Changed).
+
+### SDK phase 1
+
 SDK phase 1 (Part of #5573): the SDK now speaks the wire contract the fintech API actually enforces. Still 0.x: the breaking changes below ship without a major bump. Not released yet.
 
 ### Removed (breaking)

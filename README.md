@@ -6,7 +6,7 @@
 
 Official Python SDK for the [Danipa](https://docs.danipa.com) fintech API: a sync and an `asyncio` client, typed errors, safe automatic retries, and webhook signature verification.
 
-> **Status: 0.x, pre-release.** The API-key surface is small today: `merchants.me()` is the only route an API key can reach. `payment_links.create` and `invoices.create` are modelled on the server DTOs but answer `403 API_KEY_SCOPE_DENIED` to API keys until the API-key surface tracked in [#5573](https://github.com/Danipa/danipa-digital-platform/issues/5573) lands. See the [changelog](./CHANGELOG.md) for breaking changes.
+> **Status: 0.x, pre-release.** The SDK covers the whole API-key surface of the Danipa API: your merchant profile, payment links, invoices and operating balances (see [Resources](#resources)). It calls nothing an API key cannot reach. See the [changelog](./CHANGELOG.md) for breaking changes.
 
 ## Install
 
@@ -22,15 +22,27 @@ Requires **Python 3.10+** (tested on 3.10 to 3.14).
 import os
 from danipa import Danipa
 
-# The host is inferred from the key prefix:
-#   dk_test_… → https://api.sandbox.danipa.com/ms
-#   dk_live_… → https://api.danipa.com/ms   (production is not live yet)
+# A dk_test_… key talks to sandbox out of the box; no other setup is needed.
 with Danipa(api_key=os.environ["DANIPA_API_KEY"]) as danipa:
     merchant = danipa.merchants.me()
     print(merchant.business_name, merchant.billing_currency, merchant.kyb_status)
+    for balance in danipa.balances.list():
+        print(balance.currency, balance.available_balance)
 ```
 
 The key is sent as `X-API-Key`. The SDK never sends `Authorization` (the server rejects a request carrying both with `403 AMBIGUOUS_CREDENTIALS`).
+
+### Environments
+
+The host comes from the key prefix, the same marker the server uses:
+
+| Key | Host |
+|---|---|
+| `dk_test_…` | `https://api.sandbox.danipa.com/ms` (sandbox) |
+| `dk_live_…` | `https://api.danipa.com/ms` (live; production is not open yet) |
+| anything else | `DanipaConfigurationError` when you build the client. The SDK never guesses. |
+
+An explicit choice always wins: `Danipa(api_key=..., base_url="http://localhost:8080/ms")`, or `Danipa(api_key=..., environment="sandbox")` (`"sandbox"` or `"live"`). `base_url` beats `environment`.
 
 ### Async
 
@@ -50,28 +62,63 @@ asyncio.run(main())
 
 ## Resources
 
-| Resource | Methods | Route | API key today |
-|---|---|---|---|
-| `danipa.merchants` | `me()` | `GET /v1/merchants/me` | yes (`account:read` scope) |
-| `danipa.payment_links` | `create(request)` | `POST /v1/merchants/me/payment-links` | not yet, #5573 |
-| `danipa.invoices` | `create(request)` | `POST /v1/merchants/me/invoices` | not yet, #5573 |
+Every route an API key can call, and nothing else. Each needs the scope shown; a key without it gets `403 API_KEY_SCOPE_DENIED` (`PermissionDeniedError`). A key only ever sees data of its own environment.
+
+| Method | Route | Scope |
+|---|---|---|
+| `merchants.me()` → `Merchant` | `GET /v1/merchants/me` | `account:read` |
+| `payment_links.create(request)` → `PaymentLink` | `POST /v1/merchants/me/payment-links` | `payments:write` |
+| `payment_links.list(page=, size=)` → `Page[PaymentLink]` | `GET /v1/merchants/me/payment-links` | `payments:read` |
+| `payment_links.update(id, request)` → `PaymentLink` | `PUT /v1/merchants/me/payment-links/{id}` | `payments:write` |
+| `payment_links.delete(id)` → `DeletePaymentLinkResult` | `DELETE /v1/merchants/me/payment-links/{id}` | `payments:write` |
+| `invoices.create(request)` → `Invoice` | `POST /v1/merchants/me/invoices` | `payments:write` |
+| `invoices.list(status=, q=, page=, size=)` → `Page[Invoice]` | `GET /v1/merchants/me/invoices` | `payments:read` |
+| `invoices.get(id)` → `Invoice` | `GET /v1/merchants/me/invoices/{id}` | `payments:read` |
+| `invoices.send(id)` → `Invoice` | `POST /v1/merchants/me/invoices/{id}/send` | `payments:write` |
+| `invoices.void(id)` → `Invoice` | `POST /v1/merchants/me/invoices/{id}/void` | `payments:write` |
+| `balances.list()` → `list[Balance]` | `GET /v1/merchants/me/wallet/balances` | `payments:read` |
+
+Ids must be UUIDs (`str` or `uuid.UUID`); anything else raises `ValueError` before a request is sent. `page` is zero-based; `size` is 1 to 200.
+
+There is no "get one payment link" route for API keys: use `payment_links.list()`. Editing a draft invoice, the invoice PDF, invoice stats, recording an offline payment and bulk import are dashboard-only.
 
 ```python
 from decimal import Decimal
-from danipa.models import CreateInvoiceRequest, CreatePaymentLinkRequest, InvoiceLineItemRequest
+from danipa.models import (
+    CreateInvoiceRequest, CreatePaymentLinkRequest, InvoiceLineItemRequest,
+    InvoiceStatus, UpdatePaymentLinkRequest,
+)
 
+# Payment links
 link = danipa.payment_links.create(
     CreatePaymentLinkRequest(title="Deposit", amount=Decimal("125.00"))  # currency defaults to the merchant's
 )
+print(link.url)
+danipa.payment_links.update(link.id, UpdatePaymentLinkRequest(title="Deposit (50%)"))
+page = danipa.payment_links.list(page=0, size=50)       # page is zero-based; size 1 to 200
+print(page.total_elements, [l.title for l in page.content], page.has_next)
+result = danipa.payment_links.delete(link.id)
+print(result.deleted)  # False when the link had payments: it is deactivated instead
 
+# Invoices: create (DRAFT) → send (SENT, gets a payment link) → void
 invoice = danipa.invoices.create(
     CreateInvoiceRequest(
         customer_name="Ama K.",
+        customer_email="ama@example.com",
         line_items=[InvoiceLineItemRequest(description="Catering", quantity=3, unit_price=Decimal("10.00"))],
     )
 )
-print(invoice.status)  # InvoiceStatus.SENT; an unknown future status parses as InvoiceStatus.UNKNOWN
+invoice = danipa.invoices.send(invoice.id)
+print(invoice.status, invoice.payment_link_url)  # InvoiceStatus.SENT
+overdue = danipa.invoices.list(status=InvoiceStatus.OVERDUE, q="INV-")
+danipa.invoices.void(invoice.id)
+
+# Balances: one per currency held, empty until something settles
+for balance in danipa.balances.list():
+    print(balance.currency, balance.available_balance, balance.pending_balance)
 ```
+
+An unknown future status parses as `InvoiceStatus.UNKNOWN` / `PaymentLinkStatus.UNKNOWN` instead of failing.
 
 Money fields are `decimal.Decimal`. The server writes money as JSON numbers; the SDK parses them straight to `Decimal` (no float rounding) and sends money as decimal strings.
 
@@ -111,6 +158,7 @@ except DanipaNetworkError as exc:       # no response (DanipaConnectionError / D
 | `ServerError` | 5xx |
 | `DanipaConnectionError`, `DanipaTimeoutError` | no response |
 | `ResponseParseError` | 2xx whose body could not be parsed |
+| `DanipaConfigurationError` | the client cannot be built as configured (e.g. a key with an unknown prefix); raised before anything is sent |
 
 Every `DanipaApiError` carries `status`, `code`, `message`, `request_id` (from `X-Correlation-Id` / `X-Request-Id`, else the body's `correlationId` / `traceId`), `raw` (the parsed body), `headers`, `idempotency_key` and `idempotent_replay`. Both server error shapes are understood: the `ApiStatus` envelope and the flat `{code, description}` body.
 
@@ -185,6 +233,14 @@ pip install -e '.[dev]'
 ruff check .
 mypy --strict src/danipa tests
 pytest            # coverage gate: 80 %
+```
+
+`tests/test_route_contract.py` pins the SDK's route set to the server's API-key route table: a method that calls a route a key cannot reach, or a missing one, fails CI. Inside the monorepo it also reads the route table from the fintech source.
+
+Live check against sandbox (not run in CI; prints only step names and OK / FAIL, never the key or response bodies):
+
+```bash
+DANIPA_API_KEY=dk_test_... python examples/smoke_sandbox.py
 ```
 
 ## Links
