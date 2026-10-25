@@ -6,9 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-25
+
+### Upgrade notes (read first)
+
+- **Authentication now works. Upgrade from every earlier release.** The previous published build (PyPI `danipa` 0.1.0) sent the API key as `Authorization: Bearer …`, which the API has never accepted, so every call failed with 401. 0.3.0 sends the key as `X-API-Key` only and never sends an `Authorization` header (sending both is rejected). Verified against sandbox on 2026-10-25 (Part of #7463).
+- **Production is not live yet.** A `dk_live_…` key, or an explicit live environment, with no explicit `base_url` now makes `Danipa(...)` / `AsyncDanipa(...)` throw `DanipaConfigurationError` ("production is not live yet — use a dk_test_ key against sandbox"). This replaces a DNS error on the first call, and nothing is sent. `dk_test_…` keys still go to `https://api.sandbox.danipa.com/ms`. The live default stays `https://api.danipa.com/ms`, and a later 0.x release removes this guard when production launches. An explicit `base_url` is never blocked.
+- Routes the earlier build called that never existed on the server are gone; see **Removed** below.
+
+The version jumps from 0.1.0 to 0.3.0 so all four Danipa SDKs share one version line.
+
 ### 0.3.0 readiness: the full API-key surface (Part of #5573)
 
-The SDK now covers every route an API key can call (the fintech `ApiKeyAuthenticationFilter` route table) and nothing else, and a `dk_test_` key works against sandbox straight after `pip install`. Version stays a dev pre-release; the release PR sets 0.3.0.
+The SDK now covers every route an API key can call (the fintech `ApiKeyAuthenticationFilter` route table) and nothing else, and a `dk_test_` key works against sandbox straight after `pip install`.
 
 #### Added
 

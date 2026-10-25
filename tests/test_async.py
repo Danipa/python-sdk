@@ -169,7 +169,7 @@ def test_async_injected_client_is_used_stripped_and_not_closed() -> None:
         injected = httpx.AsyncClient(
             transport=server.transport, headers={"Authorization": "Bearer x"}
         )
-        danipa = AsyncDanipa(api_key="dk_live_k", http_client=injected)
+        danipa = AsyncDanipa(api_key="dk_test_k", http_client=injected)
         await danipa.merchants.me()
         await danipa.aclose()
         closed = injected.is_closed
@@ -177,7 +177,7 @@ def test_async_injected_client_is_used_stripped_and_not_closed() -> None:
         return closed
 
     assert asyncio.run(run()) is False
-    assert server.last.url.host == "api.danipa.com"
+    assert server.last.url.host == "api.sandbox.danipa.com"
     assert "authorization" not in server.last.headers
 
 

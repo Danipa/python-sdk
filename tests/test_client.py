@@ -85,7 +85,7 @@ def test_infer_base_url_by_prefix() -> None:
 
 @pytest.mark.parametrize(
     ("api_key", "expected_host"),
-    [("dk_test_abc", "api.sandbox.danipa.com"), ("dk_live_abc", "api.danipa.com")],
+    [("dk_test_abc", "api.sandbox.danipa.com")],
 )
 def test_key_prefix_routes_to_host(api_key: str, expected_host: str) -> None:
     server = FakeServer(json_response(200, MERCHANT_BODY))

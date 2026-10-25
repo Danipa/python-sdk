@@ -49,6 +49,14 @@ SANDBOX_BASE_URL = "https://api.sandbox.danipa.com/ms"
 PRODUCTION_BASE_URL = "https://api.danipa.com/ms"
 """Production is not live yet; only a ``dk_live_`` key (or an explicit override) reaches it."""
 
+PRODUCTION_NOT_LIVE_MESSAGE = (
+    "Danipa SDK: production is not live yet — use a dk_test_ key against sandbox. "
+    "(To reach a live host anyway, pass an explicit base_url.)"
+)
+"""Raised (as :class:`~danipa.DanipaConfigurationError`) when a client would default to
+:data:`PRODUCTION_BASE_URL`. Failing at construction beats an opaque DNS error on the
+first call; a later 0.x release removes this guard."""
+
 TEST_KEY_PREFIX = "dk_test_"
 LIVE_KEY_PREFIX = "dk_live_"
 
@@ -98,17 +106,25 @@ def resolve_base_url(
     base_url: str | None = None,
     environment: str | None = None,
 ) -> str:
-    """Pick the host: ``base_url`` wins, then ``environment``, then the key prefix."""
+    """Pick the host: ``base_url`` wins, then ``environment``, then the key prefix.
+
+    Resolving to the live default raises until production launches; an explicit
+    ``base_url`` is never blocked.
+    """
     if base_url:
         return base_url.rstrip("/")
     if environment is not None:
         try:
-            return ENVIRONMENT_BASE_URLS[environment]
+            resolved = ENVIRONMENT_BASE_URLS[environment]
         except KeyError:
             raise DanipaConfigurationError(
                 f"Danipa SDK: unknown environment {environment!r}; use 'sandbox' or 'live'"
             ) from None
-    return infer_base_url(api_key)
+    else:
+        resolved = infer_base_url(api_key)
+    if resolved == PRODUCTION_BASE_URL:
+        raise DanipaConfigurationError(PRODUCTION_NOT_LIVE_MESSAGE)
+    return resolved
 
 
 def user_agent() -> str:

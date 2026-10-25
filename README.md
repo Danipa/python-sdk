@@ -39,7 +39,7 @@ The host comes from the key prefix, the same marker the server uses:
 | Key | Host |
 |---|---|
 | `dk_test_…` | `https://api.sandbox.danipa.com/ms` (sandbox) |
-| `dk_live_…` | `https://api.danipa.com/ms` (live; production is not open yet) |
+| `dk_live_…` | `https://api.danipa.com/ms`. **Production is not live yet:** building the client raises `DanipaConfigurationError` ("production is not live yet — use a dk_test_ key against sandbox") unless you pass an explicit `base_url`. Nothing is sent. |
 | anything else | `DanipaConfigurationError` when you build the client. The SDK never guesses. |
 
 An explicit choice always wins: `Danipa(api_key=..., base_url="http://localhost:8080/ms")`, or `Danipa(api_key=..., environment="sandbox")` (`"sandbox"` or `"live"`). `base_url` beats `environment`.

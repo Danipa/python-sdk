@@ -13,7 +13,13 @@ import asyncio
 import pytest
 
 from danipa import AsyncDanipa, Danipa, DanipaConfigurationError, DanipaError
-from danipa.http import PRODUCTION_BASE_URL, SANDBOX_BASE_URL, infer_base_url, resolve_base_url
+from danipa.http import (
+    PRODUCTION_BASE_URL,
+    PRODUCTION_NOT_LIVE_MESSAGE,
+    SANDBOX_BASE_URL,
+    infer_base_url,
+    resolve_base_url,
+)
 from tests.conftest import MERCHANT_BODY, FakeServer, json_response
 
 
@@ -26,13 +32,15 @@ def test_test_key_defaults_to_sandbox() -> None:
     assert str(server.last.url) == "https://api.sandbox.danipa.com/ms/v1/merchants/me"
 
 
-def test_live_key_defaults_to_live() -> None:
+def test_live_key_is_refused_until_production_launches() -> None:
     assert PRODUCTION_BASE_URL == "https://api.danipa.com/ms"
+    assert infer_base_url("dk_live_abc") == PRODUCTION_BASE_URL
     server = FakeServer(json_response(200, MERCHANT_BODY))
-    with Danipa(api_key="dk_live_abc", transport=server.transport) as danipa:
-        assert danipa.base_url == PRODUCTION_BASE_URL
-        danipa.merchants.me()
-    assert str(server.last.url) == "https://api.danipa.com/ms/v1/merchants/me"
+    with pytest.raises(DanipaConfigurationError) as excinfo:
+        Danipa(api_key="dk_live_topsecret", transport=server.transport)
+    assert str(excinfo.value) == PRODUCTION_NOT_LIVE_MESSAGE
+    assert "topsecret" not in str(excinfo.value)
+    assert server.requests == []
 
 
 @pytest.mark.parametrize(
@@ -76,13 +84,12 @@ def test_explicit_base_url_rescues_an_unknown_prefix() -> None:
     danipa.close()
 
 
-@pytest.mark.parametrize(
-    ("environment", "expected"), [("sandbox", SANDBOX_BASE_URL), ("live", PRODUCTION_BASE_URL)]
-)
-def test_explicit_environment_overrides_the_prefix(environment: str, expected: str) -> None:
-    key = "dk_live_abc" if environment == "sandbox" else "dk_test_abc"
-    assert resolve_base_url(key, None, environment) == expected
-    assert resolve_base_url("unknown", None, environment) == expected
+def test_explicit_environment_overrides_the_prefix() -> None:
+    assert resolve_base_url("dk_live_abc", None, "sandbox") == SANDBOX_BASE_URL
+    assert resolve_base_url("unknown", None, "sandbox") == SANDBOX_BASE_URL
+    for key in ("dk_test_abc", "unknown"):
+        with pytest.raises(DanipaConfigurationError, match="production is not live yet"):
+            resolve_base_url(key, None, "live")
 
 
 def test_environment_option_on_both_clients() -> None:
@@ -91,8 +98,8 @@ def test_environment_option_on_both_clients() -> None:
     danipa.close()
 
     async def run() -> None:
-        async with AsyncDanipa(api_key="custom", environment="live") as adanipa:
-            assert adanipa.base_url == PRODUCTION_BASE_URL
+        with pytest.raises(DanipaConfigurationError, match="production is not live yet"):
+            AsyncDanipa(api_key="custom", environment="live")
 
     asyncio.run(run())
 
