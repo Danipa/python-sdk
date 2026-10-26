@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `Invoice.tax_held` (`bool | None`): `True` on a draft held for a tax-blocked subscription period, whose tax shows as 0 until it is sent; `None` when the server omits it (#7615).
+
 ## [0.3.0] — 2026-10-25
 
 ### Upgrade notes (read first)

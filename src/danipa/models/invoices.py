@@ -85,3 +85,6 @@ class Invoice(_ResponseModel):
     payment_link_url: str | None = None
     notes: str | None = None
     created_at: datetime | None = None
+    # True on a draft held for a tax-blocked subscription period: its tax is not worked out yet
+    # (shown as 0) and is resolved when it is sent. None otherwise (the server omits it). #7615
+    tax_held: bool | None = None

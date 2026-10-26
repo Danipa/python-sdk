@@ -399,6 +399,17 @@ def test_invoices_get() -> None:
     assert invoice.invoice_number == "INV-0001"
 
 
+def test_invoices_get_reads_tax_held_when_present_and_none_when_absent() -> None:
+    # #7615: a draft held for a tax-blocked subscription period carries "taxHeld": true (its tax
+    # shows as 0 until it is sent); the server omits the field otherwise.
+    held = FakeServer(json_response(200, {**INVOICE_BODY, "status": "DRAFT", "taxHeld": True}))
+    with _client(held) as danipa:
+        assert danipa.invoices.get(INVOICE_ID).tax_held is True
+    plain = FakeServer(json_response(200, INVOICE_BODY))
+    with _client(plain) as danipa:
+        assert danipa.invoices.get(INVOICE_ID).tax_held is None
+
+
 def test_invoices_get_other_environment_is_not_found() -> None:
     server = FakeServer(json_response(404, {"code": "INVOICE_NOT_FOUND", "description": "x"}))
     with _client(server) as danipa, pytest.raises(NotFoundError):
