@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `WebhookEvent.dedupe_key` (property): lowercase hex SHA-256 of the verified raw body bytes (`raw`), the same on every retry of a delivery. It identifies a body, not a delivery: a dashboard replay, or two distinct events with byte-identical bodies, share it, so prefer the body's own unique id where it has one. De-duplicate on it, or on the body's own id. Danipa re-signs every webhook retry with a fresh timestamp, so the signature and timestamp change per attempt while the body stays the same. The docs no longer say to de-duplicate on the delivery id: `X-Danipa-Event` and `X-Danipa-Delivery` are unsigned and are now documented as informational only; branch on the body's own event type where present (#7614).
 - `Invoice.tax_held` (`bool | None`): `True` on a draft held for a tax-blocked subscription period, whose tax shows as 0 until it is sent; `None` when the server omits it (#7615).
 
 ## [0.3.0] — 2026-10-25

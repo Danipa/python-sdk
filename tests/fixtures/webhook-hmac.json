@@ -36,5 +36,25 @@
       "timestamp": 1700000000,
       "expectedSignature": "sha256=f1e979af50c4061d327f42bbee1d20db99b305f9ec5930780eafe6cedf6348be"
     }
-  ]
+  ],
+  "dedupeKey": {
+    "$comment": "Every SDK exposes the dedupe key of a verified event (Java dedupeKey(), Node dedupeKey, Python dedupe_key, PHP $dedupeKey) = lowercase-hex SHA-256 of the verified RAW body bytes. Danipa re-signs every retry with a fresh timestamp, so the signature and timestamp change per attempt while the body stays identical; X-Danipa-Event and X-Danipa-Delivery are NOT signed. Each SDK MUST return `expectedDigest` for `payload`, at any signing timestamp.",
+    "vectors": [
+      {
+        "name": "default-test-vector",
+        "payload": "{\"test\":true}",
+        "expectedDigest": "6fd977db9b2afe87a9ceee48432881299a6aaf83d935fbbe83007660287f9c2e"
+      },
+      {
+        "name": "realistic-payment-event",
+        "payload": "{\"event\":\"payment.completed\",\"id\":\"col_abc123\",\"amount\":\"125.00\",\"currency\":\"GHS\"}",
+        "expectedDigest": "37d2229bffb03f6d40661766c669a932fce3dcb8547598b2829e6e6bbc906802"
+      },
+      {
+        "name": "unicode-payload",
+        "payload": "{\"unicode\":\"€ 中文 emoji 🎉\"}",
+        "expectedDigest": "c3d17da81d42676fca9cccf0e57f905e7ae828fd613a15e485c6f5a0d072b82c"
+      }
+    ]
+  }
 }

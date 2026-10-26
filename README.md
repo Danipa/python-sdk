@@ -181,10 +181,13 @@ try:
     event = construct_event(raw_body, request.headers, ["whsec_current", "whsec_previous"])
 except WebhookVerificationError:
     ...  # respond 400
-print(event.type, event.delivery_id, event.data)
+if already_processed(event.dedupe_key):  # SHA-256 of the raw body: same on every retry
+    ...  # respond 200, skip
+handle(event.data)  # branch on the body's own event type, where present
 ```
 
-- `construct_event(payload, headers, secrets, *, tolerance=300)` verifies, then returns a `WebhookEvent` (`type`, `delivery_id`, `timestamp`, `data`, `raw`). Headers are matched case-insensitively.
+- `construct_event(payload, headers, secrets, *, tolerance=300)` verifies, then returns a `WebhookEvent` (`type`, `delivery_id`, `timestamp`, `data`, `raw`, `dedupe_key`). Headers are matched case-insensitively.
+- **Dedupe and routing.** Only `<X-Danipa-Timestamp>.<raw body>` is signed, and Danipa re-signs every retry with a fresh timestamp: the signature and timestamp change on each attempt while the body stays byte-identical. Dedupe on `event.dedupe_key` (lowercase hex SHA-256 of the verified raw body, the same on every retry), or on the body's own id where it has one. Branch on the body's own event type where present. The dedupe key identifies a body, not a delivery: a replay you trigger from the dashboard (same body, new delivery) and two distinct events with byte-identical bodies get the same key, so a handler that skips seen keys skips them too. Prefer the body's own unique id where it has one, and clear a key from your processed store before replaying that event on purpose. `event.type` and `event.delivery_id` come from the `X-Danipa-Event` and `X-Danipa-Delivery` headers, which are **not signed**: treat them as informational only.
 - `verify(payload, signature, timestamp, secret, *, tolerance=300) -> bool` (alias `verify_webhook`) if you only need a yes/no.
 - `payload` may be `bytes` or `str`; `secret(s)` may be one string or a list (rotation: any match passes); `tolerance` is the allowed clock skew in seconds.
 

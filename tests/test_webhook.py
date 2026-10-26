@@ -220,3 +220,41 @@ def test_signature_format() -> None:
     assert sig.startswith("sha256=")
     assert len(sig) == len("sha256=") + 64
     assert json.loads("{}") == {}
+
+
+# ---------------------------------------------------------------------------
+# dedupe_key (#7614): Danipa re-signs every retry with a fresh timestamp, so
+# only the body is stable across attempts; event/delivery headers are unsigned.
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_key_is_stable_across_retries_resigned_with_a_fresh_timestamp(
+    fixed_clock: None,
+) -> None:
+    first = construct_event(BODY, _headers(ts=TS - 120), SECRET)
+    retry_headers = _headers(ts=TS)
+    retry_headers["X-Danipa-Delivery"] = "dlv_other"
+    retry = construct_event(BODY.decode("utf-8"), retry_headers, SECRET)
+    assert len(first.dedupe_key) == 64
+    assert int(first.dedupe_key, 16) >= 0
+    assert first.dedupe_key == first.dedupe_key.lower()
+    assert retry.dedupe_key == first.dedupe_key
+
+
+def test_dedupe_key_differs_for_a_different_body(fixed_clock: None) -> None:
+    other = b'{"event":"payment.completed","amount":125.11}'
+    a = construct_event(BODY, _headers(), SECRET)
+    b = construct_event(other, _headers(body=other), SECRET)
+    assert a.dedupe_key != b.dedupe_key
+
+
+def test_dedupe_key_matches_every_fixture_vector(
+    fixed_clock: None, webhook_hmac_fixture: dict[str, Any]
+) -> None:
+    vectors = webhook_hmac_fixture["dedupeKey"]["vectors"]
+    assert vectors
+    for vector in vectors:
+        body = vector["payload"].encode("utf-8")
+        for ts in (TS - 60, TS):
+            event = construct_event(body, _headers(body=body, ts=ts), SECRET)
+            assert event.dedupe_key == vector["expectedDigest"], (vector["name"], ts)

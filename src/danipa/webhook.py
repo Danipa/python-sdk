@@ -11,6 +11,12 @@ Algorithm: ``signature = "sha256=" + hex(HMAC-SHA256(secret, f"{timestamp}." + b
 over the RAW request bytes. Verify before parsing: re-serialising parsed JSON
 changes the bytes and breaks the signature.
 
+Only the timestamp and body are signed, and Danipa re-signs every retry with a
+fresh timestamp. Dedupe on :attr:`WebhookEvent.dedupe_key` (SHA-256 of the raw
+body) or on the body's own id, and branch on the body's own event type where
+present. ``X-Danipa-Event`` and ``X-Danipa-Delivery`` are UNSIGNED and
+informational only.
+
 Cross-SDK parity: every Danipa SDK (Node, Java, Python, PHP) MUST produce
 identical signatures for the vectors in ``sdks/fixtures/webhook-hmac.json``.
 Drift in this file is a release-blocker.
@@ -115,22 +121,42 @@ def verify(
 
 @dataclass(frozen=True, slots=True)
 class WebhookEvent:
-    """A verified webhook delivery."""
+    """A verified webhook delivery.
+
+    De-duplicate on :attr:`dedupe_key` (or the body's own id, where the payload
+    has one) and branch on the body's own event type where present. ``type`` and
+    ``delivery_id`` come from UNSIGNED headers and are informational only.
+    """
 
     type: str | None
-    """Event type, from ``X-Danipa-Event`` (e.g. ``payment.completed``)."""
+    """Event type, from the UNSIGNED ``X-Danipa-Event`` header (e.g. ``payment.completed``).
+    Informational only."""
 
     delivery_id: str | None
-    """Delivery id, from ``X-Danipa-Delivery``. Use it to de-duplicate redeliveries."""
+    """Delivery id, from the UNSIGNED ``X-Danipa-Delivery`` header. Informational only;
+    do not de-duplicate on it."""
 
     timestamp: int
-    """Signing time, from ``X-Danipa-Timestamp`` (epoch seconds)."""
+    """Signing time, from ``X-Danipa-Timestamp`` (epoch seconds). Danipa re-signs every
+    retry, so it differs per attempt."""
 
     data: Any
     """The parsed JSON body (``None`` when empty). Fractional numbers are ``Decimal``."""
 
     raw: bytes
     """The exact bytes that were verified."""
+
+    @property
+    def dedupe_key(self) -> str:
+        """Lowercase-hex SHA-256 of the verified raw body bytes.
+
+        Identical across retries of the same delivery (each retry is re-signed
+        with a fresh timestamp over the same body), so de-duplicate on it. It
+        identifies a body, not a delivery: a dashboard replay (same body) and two
+        distinct events with byte-identical bodies share it, so prefer the body's
+        own unique id where it has one.
+        """
+        return hashlib.sha256(self.raw).hexdigest()
 
 
 def _header(headers: Mapping[str, str], name: str) -> str | None:
