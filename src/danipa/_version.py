@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from importlib import metadata
 
-__version__ = "0.4.0"
+__version__ = "0.5.0.dev0"
 
 
 @lru_cache(maxsize=1)
