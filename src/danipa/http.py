@@ -25,11 +25,13 @@ import asyncio
 import json
 import platform
 import random
+import re
 import time
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -101,6 +103,44 @@ def infer_base_url(api_key: str) -> str:
     )
 
 
+_CONTROL_OR_SPACE = re.compile(r"[\x00-\x20\x7f]")
+_HOST = re.compile(r"^[A-Za-z0-9.:-]+$")
+
+
+def validate_base_url(base_url: str) -> str:
+    """Check an explicit ``base_url`` and return it unchanged.
+
+    It must be an absolute http(s) URL with a valid host and no query, fragment
+    or user-info; otherwise the resource path would land inside the query or
+    fragment. Plain ``http`` stays allowed for local and test servers. Messages
+    name the rule, never the URL (it may carry user-info).
+    """
+    if "?" in base_url or "#" in base_url:
+        raise DanipaConfigurationError(
+            "Danipa SDK: base_url must not contain a query (?...) or fragment (#...)"
+        )
+    absolute = DanipaConfigurationError(
+        "Danipa SDK: base_url must be an absolute http:// or https:// URL, "
+        "e.g. https://api.sandbox.danipa.com/ms"
+    )
+    if _CONTROL_OR_SPACE.search(base_url):
+        raise absolute
+    try:
+        parts = urlsplit(base_url)
+        parts.port  # noqa: B018 - raises ValueError for an invalid port
+    except ValueError:
+        raise absolute from None
+    if parts.scheme.lower() not in ("http", "https"):
+        raise absolute
+    if not parts.hostname or not _HOST.match(parts.hostname):
+        raise DanipaConfigurationError("Danipa SDK: base_url must include a host")
+    if "@" in parts.netloc:
+        raise DanipaConfigurationError(
+            "Danipa SDK: base_url must not contain user-info (user:password@)"
+        )
+    return base_url
+
+
 def resolve_base_url(
     api_key: str,
     base_url: str | None = None,
@@ -112,7 +152,7 @@ def resolve_base_url(
     ``base_url`` is never blocked.
     """
     if base_url:
-        return base_url.rstrip("/")
+        return validate_base_url(base_url).rstrip("/")
     if environment is not None:
         try:
             resolved = ENVIRONMENT_BASE_URLS[environment]

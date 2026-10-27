@@ -114,3 +114,47 @@ def test_base_url_wins_over_environment() -> None:
 def test_unknown_environment_is_a_configuration_error() -> None:
     with pytest.raises(DanipaConfigurationError, match="unknown environment"):
         Danipa(api_key="dk_test_abc", environment="production")  # type: ignore[arg-type]
+
+
+INVALID_BASE_URLS = {
+    "query": "https://example.invalid/ms?tenant=x",
+    "empty query": "https://example.invalid/ms?",
+    "fragment": "https://example.invalid/ms#frag",
+    "user-info": "https://someone:hunter2@example.invalid/ms",
+    "no host": "https:///ms",
+    "bad port": "https://example.invalid:99999/ms",
+    "relative": "/ms",
+    "non-http scheme": "ftp://example.invalid/ms",
+    "space in host": "https://exa mple.invalid/ms",
+}
+
+
+@pytest.mark.parametrize("base_url", INVALID_BASE_URLS.values(), ids=INVALID_BASE_URLS.keys())
+def test_explicit_base_url_must_be_a_plain_absolute_http_url(base_url: str) -> None:
+    server = FakeServer(json_response(200, MERCHANT_BODY))
+    with pytest.raises(DanipaConfigurationError) as excinfo:
+        Danipa(api_key="dk_test_abc", base_url=base_url, transport=server.transport)
+    assert "hunter2" not in str(excinfo.value), "the message never echoes the URL"
+    assert server.requests == []
+
+    async def run() -> None:
+        with pytest.raises(DanipaConfigurationError):
+            AsyncDanipa(api_key="dk_test_abc", base_url=base_url)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("https://gateway.example.com/ms", "https://gateway.example.com/ms/v1/merchants/me"),
+        ("http://localhost:8080/ms/", "http://localhost:8080/ms/v1/merchants/me"),
+        ("http://127.0.0.1:4010", "http://127.0.0.1:4010/v1/merchants/me"),
+        ("http://[::1]:4010/ms", "http://[::1]:4010/ms/v1/merchants/me"),
+    ],
+)
+def test_valid_explicit_base_url_is_used(base_url: str, expected: str) -> None:
+    server = FakeServer(json_response(200, MERCHANT_BODY))
+    with Danipa(api_key="dk_test_abc", base_url=base_url, transport=server.transport) as danipa:
+        danipa.merchants.me()
+    assert str(server.last.url) == expected

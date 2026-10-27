@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- An explicit `base_url` is now validated at construction, like the Java SDK: it must be an absolute `http://` or `https://` URL with a host, and must not contain a query, a fragment or user-info. Anything else raises `DanipaConfigurationError` and nothing is sent. Plain `http` stays allowed for local and test servers. The default sandbox and live URLs are unaffected (Part of #7463).
+
 ## [0.4.0] — 2026-10-26
 
 ### Added
